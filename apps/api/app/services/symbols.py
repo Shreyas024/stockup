@@ -7,16 +7,27 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-# apps/api/app/services -> repo root data/
-DATA_DIR = Path(__file__).resolve().parents[4] / "data"
-SYMBOLS_PATH = DATA_DIR / "symbols.json"
+def _resolve_symbols_path() -> Path:
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parents[4] / "data" / "symbols.json",  # monorepo: repo/data
+        here.parents[2] / "data" / "symbols.json",  # deploy: apps/api/data
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return candidates[0]
+
+
+SYMBOLS_PATH = _resolve_symbols_path()
 
 
 @lru_cache(maxsize=1)
 def load_symbols() -> list[dict[str, Any]]:
-    if not SYMBOLS_PATH.exists():
+    path = _resolve_symbols_path()
+    if not path.exists():
         return []
-    with SYMBOLS_PATH.open(encoding="utf-8") as f:
+    with path.open(encoding="utf-8") as f:
         data = json.load(f)
     return data.get("symbols", [])
 

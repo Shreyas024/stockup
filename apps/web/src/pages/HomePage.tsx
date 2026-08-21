@@ -1,38 +1,23 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { StockRow } from '../components/StockRow'
+import { formatUpdatedAt, useAutoRefresh } from '../hooks/useAutoRefresh'
 import { api, type Quote } from '../lib/api'
+
+const REFRESH_MS = 30_000
 
 export function HomePage() {
   const navigate = useNavigate()
   const [q, setQ] = useState('')
-  const [movers, setMovers] = useState<Quote[]>([])
-  const [gainers, setGainers] = useState<Quote[]>([])
-  const [losers, setLosers] = useState<Quote[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        setLoading(true)
-        const data = await api.trending()
-        if (cancelled) return
-        setMovers(data.movers)
-        setGainers(data.gainers)
-        setLosers(data.losers)
-        setError(null)
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load trending stocks')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const { data, loading, refreshing, error, updatedAt } = useAutoRefresh(
+    () => api.trending(),
+    REFRESH_MS,
+  )
+
+  const movers = data?.movers ?? []
+  const gainers = data?.gainers ?? []
+  const losers = data?.losers ?? []
 
   function onSearch(e: FormEvent) {
     e.preventDefault()
@@ -82,13 +67,28 @@ export function HomePage() {
         </div>
       </section>
 
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-ink-soft/70">
+          Live trending
+        </h2>
+        <p className="text-xs text-ink-soft/55">
+          {refreshing ? (
+            <span className="animate-pulse-soft text-teal">Updating…</span>
+          ) : updatedAt ? (
+            <>Auto-refresh · last update {formatUpdatedAt(updatedAt)}</>
+          ) : (
+            'Auto-refresh every 30s'
+          )}
+        </p>
+      </div>
+
       {error && (
         <div className="rounded-xl border border-loss/30 bg-loss/5 px-4 py-3 text-sm text-loss">
           {error}. Is the API running on port 8000?
         </div>
       )}
 
-      {loading ? (
+      {loading && !data ? (
         <div className="animate-pulse-soft rounded-2xl border border-mist bg-white/50 px-4 py-16 text-center text-sm text-ink-soft/60">
           Loading trending stocks…
         </div>

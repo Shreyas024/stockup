@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { PriceChart } from '../components/PriceChart'
+import { formatUpdatedAt, useAutoRefresh } from '../hooks/useAutoRefresh'
 import { api, formatPct, formatPrice, formatVolume, type HistoryPoint, type Quote } from '../lib/api'
 
 const RANGES = [
@@ -11,32 +12,42 @@ const RANGES = [
   { key: '5y', label: '5Y' },
 ] as const
 
+const QUOTE_REFRESH_MS = 20_000
+
 export function StockPage() {
   const { exchange = '', symbol = '' } = useParams()
   const decoded = decodeURIComponent(symbol)
-  const [quote, setQuote] = useState<Quote | null>(null)
   const [points, setPoints] = useState<HistoryPoint[]>([])
   const [range, setRange] = useState<string>('1y')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [historyError, setHistoryError] = useState<string | null>(null)
+
+  const fetchQuote = useCallback(
+    () => api.quote(exchange, decoded),
+    [exchange, decoded],
+  )
+
+  const {
+    data: quote,
+    loading: quoteLoading,
+    refreshing,
+    error: quoteError,
+    updatedAt,
+  } = useAutoRefresh<Quote>(fetchQuote, QUOTE_REFRESH_MS, [exchange, decoded])
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        setLoading(true)
-        const [q, h] = await Promise.all([
-          api.quote(exchange, decoded),
-          api.history(exchange, decoded, range),
-        ])
+        setHistoryLoading(true)
+        const h = await api.history(exchange, decoded, range)
         if (cancelled) return
-        setQuote(q)
         setPoints(h.points)
-        setError(null)
+        setHistoryError(null)
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load stock')
+        if (!cancelled) setHistoryError(e instanceof Error ? e.message : 'Failed to load history')
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) setHistoryLoading(false)
       }
     })()
     return () => {
@@ -46,12 +57,14 @@ export function StockPage() {
 
   const up = (quote?.changePercent ?? 0) >= 0
   const chartData = points.map((p) => ({ date: p.date, close: p.close }))
+  const error = quoteError || historyError
+  const loading = (quoteLoading && !quote) || (historyLoading && points.length === 0)
 
   return (
     <div className="animate-rise space-y-8">
-      {loading && !quote ? (
+      {loading ? (
         <p className="animate-pulse-soft text-sm text-ink-soft/60">Loading market data…</p>
-      ) : error ? (
+      ) : error && !quote ? (
         <p className="text-sm text-loss">{error}</p>
       ) : quote ? (
         <>
@@ -70,6 +83,13 @@ export function StockPage() {
                   {formatPrice(quote.change)} ({formatPct(quote.changePercent)})
                 </span>
               </div>
+              <p className="mt-2 text-xs text-ink-soft/55">
+                {refreshing ? (
+                  <span className="animate-pulse-soft text-teal">Updating price…</span>
+                ) : updatedAt ? (
+                  <>Live · last update {formatUpdatedAt(updatedAt)}</>
+                ) : null}
+              </p>
             </div>
             <Link
               to={`/stock/${exchange}/${encodeURIComponent(decoded)}/analyse`}

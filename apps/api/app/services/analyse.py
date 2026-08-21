@@ -7,10 +7,10 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 from sklearn.linear_model import LinearRegression
 
-from app.services.symbols import find_symbol, yahoo_ticker
+from app.services.symbols import find_symbol
+from app.services.yahoo import download_history
 
 DISCLAIMER = (
     "Not financial advice. Signals and forecasts are educational estimates based on "
@@ -150,9 +150,10 @@ def analyse_stock(exchange: str, symbol: str, horizon_days: int = 14) -> dict[st
     horizon_days = max(3, min(int(horizon_days), 30))
     meta = find_symbol(exchange, symbol)
     name = meta["name"] if meta else symbol.upper()
-    ticker = yahoo_ticker(exchange, symbol)
 
-    hist = yf.Ticker(ticker).history(period="5y", auto_adjust=True)
+    # Prefer requested exchange; fall back to NSE/BSE alternate Yahoo suffix
+    # when BSE name-based tickers (e.g. TATASTEEL.BO) have almost no history.
+    hist = download_history(exchange, symbol, period="5y", min_rows=50)
     if hist is None or hist.empty or len(hist) < 50:
         return {
             "exchange": exchange.upper(),

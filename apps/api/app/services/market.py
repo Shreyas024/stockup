@@ -7,14 +7,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pandas as pd
-import yfinance as yf
 from cachetools import TTLCache
 
-from app.services.symbols import find_symbol, liquid_universe, yahoo_ticker
+from app.services.symbols import find_symbol, liquid_universe
+from app.services.yahoo import download_history
 
-_quote_cache: TTLCache = TTLCache(maxsize=512, ttl=120)
+_quote_cache: TTLCache = TTLCache(maxsize=512, ttl=30)
 _history_cache: TTLCache = TTLCache(maxsize=256, ttl=900)
-_trending_cache: TTLCache = TTLCache(maxsize=4, ttl=180)
+_trending_cache: TTLCache = TTLCache(maxsize=4, ttl=45)
 
 
 def _empty_quote(exchange: str, symbol: str, name: str | None = None) -> dict[str, Any]:
@@ -42,12 +42,10 @@ def get_quote(exchange: str, symbol: str) -> dict[str, Any]:
 
     meta = find_symbol(exchange, symbol)
     name = meta["name"] if meta else symbol.upper()
-    ticker = yahoo_ticker(exchange, symbol)
     result = _empty_quote(exchange, symbol, name)
 
     try:
-        t = yf.Ticker(ticker)
-        hist = t.history(period="5d", auto_adjust=True)
+        hist = download_history(exchange, symbol, period="5d", min_rows=1)
         if hist is not None and not hist.empty:
             last = hist.iloc[-1]
             prev = hist.iloc[-2] if len(hist) > 1 else last
@@ -90,10 +88,9 @@ def get_history(exchange: str, symbol: str, range_key: str = "1y") -> dict[str, 
     if key in _history_cache:
         return _history_cache[key]
 
-    ticker = yahoo_ticker(exchange, symbol)
     points: list[dict[str, Any]] = []
     try:
-        hist = yf.Ticker(ticker).history(period=period, auto_adjust=True)
+        hist = download_history(exchange, symbol, period=period, min_rows=1)
         if hist is not None and not hist.empty:
             for idx, row in hist.iterrows():
                 points.append(

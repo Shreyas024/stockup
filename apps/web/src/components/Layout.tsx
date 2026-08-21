@@ -1,18 +1,10 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
-import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { type ReactNode } from 'react'
+import { Link, NavLink } from 'react-router-dom'
 import { useWatchlist } from '../hooks/useWatchlist'
+import { StockSearchBox } from './StockSearchBox'
 
 export function Layout({ children }: { children: ReactNode }) {
-  const navigate = useNavigate()
-  const [q, setQ] = useState('')
   const { count } = useWatchlist()
-
-  function onSubmit(e: FormEvent) {
-    e.preventDefault()
-    const trimmed = q.trim()
-    if (!trimmed) return
-    navigate(`/search?q=${encodeURIComponent(trimmed)}`)
-  }
 
   return (
     <div className="min-h-screen">
@@ -47,23 +39,9 @@ export function Layout({ children }: { children: ReactNode }) {
             </NavLink>
           </nav>
 
-          <form onSubmit={onSubmit} className="ml-auto flex min-w-[12rem] flex-1 justify-end sm:max-w-md">
-            <label className="relative w-full">
-              <span className="sr-only">Search stocks</span>
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search symbol or company…"
-                className="w-full rounded-xl border border-mist bg-white/90 px-4 py-2.5 text-sm text-ink shadow-sm outline-none ring-teal/30 transition placeholder:text-ink-soft/45 focus:ring-2"
-              />
-              <button
-                type="submit"
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-foam transition hover:bg-teal"
-              >
-                Search
-              </button>
-            </label>
-          </form>
+          <div className="ml-auto min-w-[12rem] flex-1 sm:max-w-md">
+            <StockSearchBox variant="header" />
+          </div>
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">{children}</main>

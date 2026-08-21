@@ -39,14 +39,29 @@ def search_symbols(query: str, limit: int = 25) -> list[dict[str, Any]]:
     q = query.strip().lower()
     if not q:
         return []
-    results: list[dict[str, Any]] = []
+
+    scored: list[tuple[int, dict[str, Any]]] = []
     for item in load_symbols():
-        hay = f"{item['symbol']} {item['name']}".lower()
-        if q in hay:
-            results.append(item)
-            if len(results) >= limit:
-                break
-    return results
+        symbol = str(item["symbol"]).lower()
+        name = str(item["name"]).lower()
+        if q == symbol:
+            rank = 0
+        elif symbol.startswith(q):
+            rank = 1
+        elif name.startswith(q):
+            rank = 2
+        elif q in symbol:
+            rank = 3
+        elif q in name:
+            rank = 4
+        else:
+            continue
+        # Prefer NSE slightly when ranks tie
+        tie = 0 if item.get("exchange") == "NSE" else 1
+        scored.append((rank * 10 + tie, item))
+
+    scored.sort(key=lambda x: (x[0], x[1]["symbol"]))
+    return [item for _, item in scored[:limit]]
 
 
 def liquid_universe() -> list[dict[str, Any]]:

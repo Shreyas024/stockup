@@ -1,0 +1,191 @@
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { api, type SymbolResult } from '../lib/api'
+
+type Props = {
+  placeholder?: string
+  variant?: 'header' | 'hero'
+  className?: string
+}
+
+export function StockSearchBox({
+  placeholder = 'Search symbol or company…',
+  variant = 'header',
+  className = '',
+}: Props) {
+  const navigate = useNavigate()
+  const listId = useId()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [q, setQ] = useState('')
+  const [suggestions, setSuggestions] = useState<SymbolResult[]>([])
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(-1)
+
+  useEffect(() => {
+    const trimmed = q.trim()
+    if (trimmed.length < 2) {
+      setSuggestions([])
+      setLoading(false)
+      setActiveIndex(-1)
+      return
+    }
+
+    let cancelled = false
+    setLoading(true)
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const data = await api.search(trimmed)
+          if (cancelled) return
+          setSuggestions(data.results.slice(0, 8))
+          setOpen(true)
+          setActiveIndex(-1)
+        } catch {
+          if (!cancelled) setSuggestions([])
+        } finally {
+          if (!cancelled) setLoading(false)
+        }
+      })()
+    }, 200)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [q])
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [])
+
+  function goSearchPage(query: string) {
+    const trimmed = query.trim()
+    if (!trimmed) return
+    setOpen(false)
+    navigate(`/search?q=${encodeURIComponent(trimmed)}`)
+  }
+
+  function goStock(item: SymbolResult) {
+    setOpen(false)
+    setQ(`${item.symbol}`)
+    navigate(`/stock/${item.exchange}/${encodeURIComponent(item.symbol)}`)
+  }
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (activeIndex >= 0 && suggestions[activeIndex]) {
+      goStock(suggestions[activeIndex])
+      return
+    }
+    goSearchPage(q)
+  }
+
+  function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (!open || suggestions.length === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveIndex((i) => (i + 1) % suggestions.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveIndex((i) => (i <= 0 ? suggestions.length - 1 : i - 1))
+    } else if (e.key === 'Escape') {
+      setOpen(false)
+      setActiveIndex(-1)
+    }
+  }
+
+  const showDropdown = open && q.trim().length >= 2
+  const inputClass =
+    variant === 'hero'
+      ? 'w-full rounded-xl border border-mist bg-white px-4 py-3 pr-28 text-sm shadow-sm outline-none ring-teal/30 focus:ring-2'
+      : 'w-full rounded-xl border border-mist bg-white/90 px-4 py-2.5 pr-24 text-sm text-ink shadow-sm outline-none ring-teal/30 transition placeholder:text-ink-soft/45 focus:ring-2'
+
+  const buttonClass =
+    variant === 'hero'
+      ? 'absolute right-1.5 top-1/2 -translate-y-1/2 rounded-xl bg-teal px-4 py-2 text-sm font-semibold text-white transition hover:bg-ink'
+      : 'absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-foam transition hover:bg-teal'
+
+  return (
+    <div ref={rootRef} className={`relative w-full ${className}`}>
+      <form onSubmit={onSubmit}>
+        <label className="relative block w-full">
+          <span className="sr-only">Search stocks</span>
+          <input
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value)
+              setOpen(true)
+            }}
+            onFocus={() => {
+              if (q.trim().length >= 2) setOpen(true)
+            }}
+            onKeyDown={onKeyDown}
+            placeholder={placeholder}
+            className={inputClass}
+            role="combobox"
+            aria-expanded={showDropdown}
+            aria-controls={listId}
+            aria-autocomplete="list"
+            autoComplete="off"
+          />
+          <button type="submit" className={buttonClass}>
+            {variant === 'hero' ? 'Find stock' : 'Search'}
+          </button>
+        </label>
+      </form>
+
+      {showDropdown && (
+        <div
+          id={listId}
+          role="listbox"
+          className="absolute left-0 right-0 z-50 mt-1.5 max-h-80 overflow-auto rounded-xl border border-mist bg-white shadow-lg"
+        >
+          {loading && suggestions.length === 0 && (
+            <p className="px-4 py-3 text-sm text-ink-soft/60">Searching…</p>
+          )}
+          {!loading && suggestions.length === 0 && (
+            <p className="px-4 py-3 text-sm text-ink-soft/60">No matching stocks</p>
+          )}
+          {suggestions.map((item, index) => (
+            <button
+              key={`${item.exchange}-${item.symbol}`}
+              type="button"
+              role="option"
+              aria-selected={index === activeIndex}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => goStock(item)}
+              className={`flex w-full items-start gap-3 px-4 py-2.5 text-left transition ${
+                index === activeIndex ? 'bg-mist/70' : 'hover:bg-mist/50'
+              }`}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-ink">{item.symbol}</span>
+                  <span className="rounded bg-mist px-1.5 py-0.5 text-[10px] font-semibold uppercase text-ink-soft">
+                    {item.exchange}
+                  </span>
+                </div>
+                <p className="truncate text-sm text-ink-soft/75">{item.name}</p>
+              </div>
+            </button>
+          ))}
+          {suggestions.length > 0 && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => goSearchPage(q)}
+              className="w-full border-t border-mist px-4 py-2.5 text-left text-sm font-semibold text-teal hover:bg-mist/40"
+            >
+              See all results for “{q.trim()}” →
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

@@ -1,15 +1,12 @@
-import { useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { StockRow } from '../components/StockRow'
+import { StockSearchBox } from '../components/StockSearchBox'
 import { formatUpdatedAt, useAutoRefresh } from '../hooks/useAutoRefresh'
 import { api, type Quote } from '../lib/api'
 
 const REFRESH_MS = 8_000
 
 export function HomePage() {
-  const navigate = useNavigate()
-  const [q, setQ] = useState('')
-
   const { data, loading, refreshing, error, updatedAt } = useAutoRefresh(
     () => api.trending(),
     REFRESH_MS,
@@ -18,13 +15,6 @@ export function HomePage() {
   const movers = data?.movers ?? []
   const gainers = data?.gainers ?? []
   const losers = data?.losers ?? []
-
-  function onSearch(e: FormEvent) {
-    e.preventDefault()
-    const trimmed = q.trim()
-    if (!trimmed) return
-    navigate(`/search?q=${encodeURIComponent(trimmed)}`)
-  }
 
   return (
     <div className="space-y-12">
@@ -40,20 +30,9 @@ export function HomePage() {
             Explore NSE &amp; BSE equities, read current market moves, and analyse past ups and downs
             for a Buy / Hold / Sell outlook with a short predicted trend.
           </p>
-          <form onSubmit={onSearch} className="mt-8 flex max-w-xl gap-2">
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Try RELIANCE, TCS, HDFCBANK…"
-              className="flex-1 rounded-xl border border-mist bg-white px-4 py-3 text-sm shadow-sm outline-none ring-teal/30 focus:ring-2"
-            />
-            <button
-              type="submit"
-              className="rounded-xl bg-teal px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink"
-            >
-              Find stock
-            </button>
-          </form>
+          <div className="mt-8 max-w-xl">
+            <StockSearchBox variant="hero" placeholder="Try RELIANCE, TCS, HDFCBANK…" />
+          </div>
         </div>
         <div className="animate-rise-delay relative overflow-hidden rounded-3xl border border-mist bg-ink px-6 py-7 text-foam shadow-lg">
           <div className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-teal-bright/30 blur-2xl" />

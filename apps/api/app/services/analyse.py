@@ -19,9 +19,13 @@ DISCLAIMER = (
 )
 
 IST = ZoneInfo("Asia/Kolkata")
+MIN_BARS = 3  # allow newly listed stocks; indicators degrade gracefully
 
 
 def _rsi(series: pd.Series, period: int = 14) -> float | None:
+    period = min(period, max(2, len(series) - 1))
+    if len(series) < period + 1:
+        return None
     delta = series.diff()
     gain = delta.clip(lower=0).rolling(period).mean()
     loss = (-delta.clip(upper=0)).rolling(period).mean()
@@ -32,6 +36,8 @@ def _rsi(series: pd.Series, period: int = 14) -> float | None:
 
 
 def _macd(series: pd.Series) -> dict[str, float | None]:
+    if len(series) < 26:
+        return {"macd": None, "signal": None, "histogram": None}
     ema12 = series.ewm(span=12, adjust=False).mean()
     ema26 = series.ewm(span=26, adjust=False).mean()
     macd_line = ema12 - ema26
@@ -45,6 +51,13 @@ def _macd(series: pd.Series) -> dict[str, float | None]:
     return {"macd": last(macd_line), "signal": last(signal), "histogram": last(hist)}
 
 
+def _sma(series: pd.Series, window: int) -> float | None:
+    if len(series) < window:
+        return None
+    val = series.rolling(window).mean().iloc[-1]
+    return None if pd.isna(val) else float(val)
+
+
 def _score_signal(
     close: float,
     sma20: float | None,
@@ -52,6 +65,7 @@ def _score_signal(
     sma200: float | None,
     rsi: float | None,
     macd_hist: float | None,
+    recent_return: float | None = None,
 ) -> tuple[str, int, list[str]]:
     score = 0
     reasons: list[str] = []
@@ -79,6 +93,13 @@ def _score_signal(
         else:
             score -= 1
             reasons.append("20-day MA is below 50-day MA (momentum soft).")
+    elif sma20 is not None:
+        if close > sma20:
+            score += 1
+            reasons.append("Price is above the 20-day moving average.")
+        else:
+            score -= 1
+            reasons.append("Price is below the 20-day moving average.")
 
     if rsi is not None:
         if rsi < 30:
@@ -101,6 +122,16 @@ def _score_signal(
             score -= 1
             reasons.append("MACD histogram is negative (bearish momentum).")
 
+    if recent_return is not None and sma50 is None and sma200 is None:
+        if recent_return > 3:
+            score += 1
+            reasons.append(f"Short listing history shows a {recent_return:.1f}% rise from first available close.")
+        elif recent_return < -3:
+            score -= 1
+            reasons.append(f"Short listing history shows a {recent_return:.1f}% drop from first available close.")
+        else:
+            reasons.append("Short listing history is roughly flat so far.")
+
     if score >= 3:
         signal = "Buy"
     elif score <= -3:
@@ -113,9 +144,9 @@ def _score_signal(
 
 
 def _fit_log_price_model(closes: pd.Series) -> tuple[LinearRegression, int, float] | None:
-    y = np.log(closes.values.astype(float))
+    y = np.log(np.clip(closes.values.astype(float), 1e-9, None))
     n = len(y)
-    if n < 30:
+    if n < 8:
         return None
     window = min(n, 180)
     y_w = y[-window:]
@@ -124,11 +155,11 @@ def _fit_log_price_model(closes: pd.Series) -> tuple[LinearRegression, int, floa
     model.fit(x_w, y_w)
     residuals = y_w - model.predict(x_w)
     std = float(np.std(residuals)) if len(residuals) else 0.02
+    std = max(std, 0.005)
     return model, window, std
 
 
 def _next_trading_days(after: date, count: int) -> list[date]:
-    """Return the next `count` weekdays after `after` (holidays ignored)."""
     out: list[date] = []
     d = after
     while len(out) < count:
@@ -149,18 +180,45 @@ def _predict_at_step(model: LinearRegression, window: int, std: float, step: int
     }
 
 
+def _momentum_forecast(closes: pd.Series, dates: pd.DatetimeIndex, horizon_days: int) -> list[dict[str, Any]]:
+    """Fallback forecast for very short histories using average daily return."""
+    if len(closes) < 2:
+        return []
+    rets = closes.pct_change().dropna()
+    mean_ret = float(rets.tail(min(10, len(rets))).mean()) if len(rets) else 0.0
+    vol = float(rets.tail(min(10, len(rets))).std()) if len(rets) > 1 else 0.02
+    vol = max(vol if not np.isnan(vol) else 0.02, 0.01)
+
+    last_ts = dates[-1].to_pydatetime()
+    if last_ts.tzinfo is not None:
+        last_ts = last_ts.astimezone(IST)
+    sessions = _next_trading_days(last_ts.date(), horizon_days)
+    price = float(closes.iloc[-1])
+    out: list[dict[str, Any]] = []
+    for i, session in enumerate(sessions, start=1):
+        pred = price * ((1 + mean_ret) ** i)
+        band = pred * vol * (1 + 0.1 * i)
+        out.append(
+            {
+                "date": session.isoformat(),
+                "predicted": round(pred, 2),
+                "low": round(max(pred - band, 0), 2),
+                "high": round(pred + band, 2),
+            }
+        )
+    return out
+
+
 def _forecast(closes: pd.Series, dates: pd.DatetimeIndex, horizon_days: int) -> list[dict[str, Any]]:
-    """Linear regression on log-price with residual-based confidence band."""
     fitted = _fit_log_price_model(closes)
     if fitted is None:
-        return []
+        return _momentum_forecast(closes, dates, horizon_days)
     model, window, std = fitted
 
     last_date = dates[-1].to_pydatetime()
     if last_date.tzinfo is not None:
         last_date = last_date.astimezone(IST)
-    last_d = last_date.date()
-    sessions = _next_trading_days(last_d, horizon_days)
+    sessions = _next_trading_days(last_date.date(), horizon_days)
 
     out: list[dict[str, Any]] = []
     for i, session in enumerate(sessions, start=1):
@@ -177,12 +235,7 @@ def _forecast(closes: pd.Series, dates: pd.DatetimeIndex, horizon_days: int) -> 
 
 
 def _session_close_forecast(closes: pd.Series, dates: pd.DatetimeIndex) -> dict[str, Any]:
-    """Predicted closing prices for today and tomorrow (IST trading calendar)."""
     fitted = _fit_log_price_model(closes)
-    if fitted is None:
-        return {"today": None, "tomorrow": None}
-
-    model, window, std = fitted
     last_ts = dates[-1].to_pydatetime()
     if last_ts.tzinfo is not None:
         last_ts = last_ts.astimezone(IST)
@@ -209,7 +262,9 @@ def _session_close_forecast(closes: pd.Series, dates: pd.DatetimeIndex) -> dict[
                 count += 1
         return max(count, 1)
 
-    def build(target: date, label: str, kind: str) -> dict[str, Any]:
+    def build_from_model(target: date, label: str, kind: str) -> dict[str, Any]:
+        assert fitted is not None
+        model, window, std = fitted
         step = steps_ahead(target)
         if step == 0:
             one = _predict_at_step(model, window, std, 1)
@@ -236,6 +291,36 @@ def _session_close_forecast(closes: pd.Series, dates: pd.DatetimeIndex) -> dict[
             "vsLastClosePercent": change_pct,
         }
 
+    def build_from_momentum(target: date, label: str, kind: str, step: int) -> dict[str, Any]:
+        points = _momentum_forecast(closes, dates, max(step, 1))
+        if not points:
+            return {
+                "kind": kind,
+                "label": label,
+                "date": target.isoformat(),
+                "weekday": target.strftime("%A"),
+                "predicted": round(last_close, 2),
+                "low": round(last_close * 0.98, 2),
+                "high": round(last_close * 1.02, 2),
+                "vsLastClose": 0.0,
+                "vsLastClosePercent": 0.0,
+            }
+        idx = min(step, len(points)) - 1
+        p = points[idx]
+        change = round(p["predicted"] - last_close, 2)
+        change_pct = round((change / last_close) * 100, 2) if last_close else 0.0
+        return {
+            "kind": kind,
+            "label": label,
+            "date": target.isoformat(),
+            "weekday": target.strftime("%A"),
+            "predicted": p["predicted"],
+            "low": p["low"],
+            "high": p["high"],
+            "vsLastClose": change,
+            "vsLastClosePercent": change_pct,
+        }
+
     today_label = (
         "Predicted close today"
         if session_today == today
@@ -246,9 +331,18 @@ def _session_close_forecast(closes: pd.Series, dates: pd.DatetimeIndex) -> dict[
     else:
         tomorrow_label = f"Predicted close tomorrow · {session_tomorrow.strftime('%A, %d %b')}"
 
+    if fitted is not None:
+        today_pred = build_from_model(session_today, today_label, "today")
+        tomorrow_pred = build_from_model(session_tomorrow, tomorrow_label, "tomorrow")
+    else:
+        today_pred = build_from_momentum(session_today, today_label, "today", max(1, steps_ahead(session_today)))
+        tomorrow_pred = build_from_momentum(
+            session_tomorrow, tomorrow_label, "tomorrow", max(2, steps_ahead(session_tomorrow))
+        )
+
     return {
-        "today": build(session_today, today_label, "today"),
-        "tomorrow": build(session_tomorrow, tomorrow_label, "tomorrow"),
+        "today": today_pred,
+        "tomorrow": tomorrow_pred,
         "basisLastClose": round(last_close, 2),
         "basisDate": last_hist.isoformat(),
     }
@@ -259,38 +353,51 @@ def analyse_stock(exchange: str, symbol: str, horizon_days: int = 14) -> dict[st
     meta = find_symbol(exchange, symbol)
     name = meta["name"] if meta else symbol.upper()
 
-    hist = download_history(exchange, symbol, period="5y", min_rows=50)
-    if hist is None or hist.empty or len(hist) < 50:
+    hist = download_history(exchange, symbol, period="max", min_rows=MIN_BARS)
+    if hist is None or hist.empty or len(hist) < MIN_BARS:
         return {
             "exchange": exchange.upper(),
             "symbol": symbol.upper(),
             "name": name,
-            "error": "Insufficient historical data to analyse this stock.",
+            "error": (
+                "Not enough market history yet to analyse this stock. "
+                "Newly listed names need a few trading sessions before signals are reliable."
+            ),
             "disclaimer": DISCLAIMER,
         }
 
     close = hist["Close"].astype(float)
-    sma20 = close.rolling(20).mean().iloc[-1]
-    sma50 = close.rolling(50).mean().iloc[-1]
-    sma200 = close.rolling(200).mean().iloc[-1] if len(close) >= 200 else np.nan
-    rsi = _rsi(close)
+    n = len(close)
+    sma20_v = _sma(close, 20)
+    sma50_v = _sma(close, 50)
+    sma200_v = _sma(close, 200)
+    rsi = _rsi(close, 14 if n >= 20 else max(3, n // 2))
     macd = _macd(close)
 
     price = float(close.iloc[-1])
-    sma20_v = None if pd.isna(sma20) else float(sma20)
-    sma50_v = None if pd.isna(sma50) else float(sma50)
-    sma200_v = None if pd.isna(sma200) else float(sma200)
-
-    lookback = min(len(close), 252)
+    lookback = min(n, 252)
     past = close.iloc[-lookback:]
-    past_return = float((past.iloc[-1] / past.iloc[0] - 1) * 100)
+    past_return = float((past.iloc[-1] / past.iloc[0] - 1) * 100) if len(past) > 1 else 0.0
     peak = float(past.max())
     trough = float(past.min())
-    drawdown = float((price / peak - 1) * 100)
+    drawdown = float((price / peak - 1) * 100) if peak else 0.0
 
     signal, confidence, reasons = _score_signal(
-        price, sma20_v, sma50_v, sma200_v, rsi, macd.get("histogram")
+        price,
+        sma20_v,
+        sma50_v,
+        sma200_v,
+        rsi,
+        macd.get("histogram"),
+        recent_return=past_return,
     )
+
+    if n < 50:
+        confidence = max(28, confidence - 20)
+        reasons.insert(
+            0,
+            f"Limited history: only {n} trading day(s) available since listing — treat this signal as provisional.",
+        )
 
     hist_points = [
         {"date": idx.strftime("%Y-%m-%d"), "close": round(float(row["Close"]), 2)}
@@ -310,6 +417,7 @@ def analyse_stock(exchange: str, symbol: str, horizon_days: int = 14) -> dict[st
         "reasons": reasons,
         "currentPrice": round(price, 2),
         "horizonDays": horizon_days,
+        "barsUsed": n,
         "trendSummary": {
             "label": trend_label,
             "pastReturnPercent": round(past_return, 2),

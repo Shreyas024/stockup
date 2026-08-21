@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { api, type SymbolResult } from '../lib/api'
 
 type Props = {
@@ -14,13 +14,31 @@ export function StockSearchBox({
   className = '',
 }: Props) {
   const navigate = useNavigate()
+  const location = useLocation()
   const listId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const suppressOpenRef = useRef(false)
   const [q, setQ] = useState('')
   const [suggestions, setSuggestions] = useState<SymbolResult[]>([])
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
+
+  function closeDropdown(clearQuery = false) {
+    suppressOpenRef.current = true
+    setOpen(false)
+    setSuggestions([])
+    setActiveIndex(-1)
+    setLoading(false)
+    if (clearQuery) setQ('')
+    inputRef.current?.blur()
+  }
+
+  // Always close suggestions when the route changes (e.g. after picking a stock)
+  useEffect(() => {
+    closeDropdown(true)
+  }, [location.pathname, location.search])
 
   useEffect(() => {
     const trimmed = q.trim()
@@ -31,13 +49,17 @@ export function StockSearchBox({
       return
     }
 
+    if (suppressOpenRef.current) {
+      return
+    }
+
     let cancelled = false
     setLoading(true)
     const timer = setTimeout(() => {
       void (async () => {
         try {
           const data = await api.search(trimmed)
-          if (cancelled) return
+          if (cancelled || suppressOpenRef.current) return
           setSuggestions(data.results.slice(0, 8))
           setOpen(true)
           setActiveIndex(-1)
@@ -66,13 +88,12 @@ export function StockSearchBox({
   function goSearchPage(query: string) {
     const trimmed = query.trim()
     if (!trimmed) return
-    setOpen(false)
+    closeDropdown(true)
     navigate(`/search?q=${encodeURIComponent(trimmed)}`)
   }
 
   function goStock(item: SymbolResult) {
-    setOpen(false)
-    setQ(`${item.symbol}`)
+    closeDropdown(true)
     navigate(`/stock/${item.exchange}/${encodeURIComponent(item.symbol)}`)
   }
 
@@ -99,7 +120,8 @@ export function StockSearchBox({
     }
   }
 
-  const showDropdown = open && q.trim().length >= 2
+  const visible = open && q.trim().length >= 2
+
   const inputClass =
     variant === 'hero'
       ? 'w-full rounded-xl border border-mist bg-white px-3 py-2.5 pr-[4.25rem] text-sm shadow-sm outline-none ring-teal/30 focus:ring-2 sm:px-4 sm:py-3 sm:pr-28'
@@ -116,19 +138,22 @@ export function StockSearchBox({
         <label className="relative block w-full">
           <span className="sr-only">Search stocks</span>
           <input
+            ref={inputRef}
             value={q}
             onChange={(e) => {
+              suppressOpenRef.current = false
               setQ(e.target.value)
               setOpen(true)
             }}
             onFocus={() => {
-              if (q.trim().length >= 2) setOpen(true)
+              if (suppressOpenRef.current) return
+              if (q.trim().length >= 2 && suggestions.length > 0) setOpen(true)
             }}
             onKeyDown={onKeyDown}
             placeholder={placeholder}
             className={inputClass}
             role="combobox"
-            aria-expanded={showDropdown}
+            aria-expanded={visible}
             aria-controls={listId}
             aria-autocomplete="list"
             autoComplete="off"
@@ -146,7 +171,7 @@ export function StockSearchBox({
         </label>
       </form>
 
-      {showDropdown && (
+      {visible && (
         <div
           id={listId}
           role="listbox"

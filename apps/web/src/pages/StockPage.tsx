@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { PriceChart } from '../components/PriceChart'
 import { ClosePredictionCard } from '../components/ClosePredictionCard'
+import { WatchlistButton } from '../components/WatchlistButton'
 import { formatUpdatedAt, useAutoRefresh } from '../hooks/useAutoRefresh'
 import {
   api,
@@ -129,12 +130,19 @@ export function StockPage() {
                 )}
               </p>
             </div>
-            <Link
-              to={`/stock/${exchange}/${encodeURIComponent(decoded)}/analyse`}
-              className="rounded-xl bg-coral px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-ink"
-            >
-              Analyse stock
-            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <WatchlistButton
+                exchange={quote.exchange}
+                symbol={quote.symbol}
+                name={quote.name}
+              />
+              <Link
+                to={`/stock/${exchange}/${encodeURIComponent(decoded)}/analyse`}
+                className="rounded-xl bg-coral px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-ink"
+              >
+                Analyse stock
+              </Link>
+            </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">

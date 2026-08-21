@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { WatchlistButton } from '../components/WatchlistButton'
 import { api, type SymbolResult } from '../lib/api'
 
 export function SearchPage() {
@@ -54,21 +55,25 @@ export function SearchPage() {
 
       <ul className="divide-y divide-mist overflow-hidden rounded-2xl border border-mist bg-white/75">
         {results.map((r) => (
-          <li key={`${r.exchange}-${r.symbol}`}>
+          <li key={`${r.exchange}-${r.symbol}`} className="flex flex-wrap items-center gap-3 px-4 py-3">
             <Link
               to={`/stock/${r.exchange}/${encodeURIComponent(r.symbol)}`}
-              className="flex items-center justify-between gap-3 px-4 py-3.5 transition hover:bg-mist/40"
+              className="min-w-0 flex-1 transition hover:opacity-80"
             >
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold">{r.symbol}</span>
-                  <span className="rounded bg-mist px-1.5 py-0.5 text-[10px] font-semibold uppercase text-ink-soft">
-                    {r.exchange}
-                  </span>
-                </div>
-                <p className="text-sm text-ink-soft/75">{r.name}</p>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">{r.symbol}</span>
+                <span className="rounded bg-mist px-1.5 py-0.5 text-[10px] font-semibold uppercase text-ink-soft">
+                  {r.exchange}
+                </span>
               </div>
-              <span className="text-sm font-medium text-teal">View →</span>
+              <p className="text-sm text-ink-soft/75">{r.name}</p>
+            </Link>
+            <WatchlistButton exchange={r.exchange} symbol={r.symbol} name={r.name} size="sm" />
+            <Link
+              to={`/stock/${r.exchange}/${encodeURIComponent(r.symbol)}`}
+              className="text-sm font-medium text-teal hover:underline"
+            >
+              View →
             </Link>
           </li>
         ))}

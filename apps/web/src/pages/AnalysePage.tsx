@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { PriceChart } from '../components/PriceChart'
-import { api, formatPct, formatPrice, type AnalyseResult } from '../lib/api'
+import { ClosePredictionCard } from '../components/ClosePredictionCard'
+import {
+  api,
+  formatPct,
+  formatPrice,
+  type AnalyseResult,
+} from '../lib/api'
 
 export function AnalysePage() {
   const { exchange = '', symbol = '' } = useParams()
@@ -48,7 +54,6 @@ export function AnalysePage() {
       low: f.low,
       high: f.high,
     }))
-    // Bridge: attach first predicted to last historical point for visual continuity
     if (lastClose && forecast.length) {
       lastClose.predicted = lastClose.close
       lastClose.low = lastClose.close
@@ -105,6 +110,17 @@ export function AnalysePage() {
 
       {!loading && data && !data.error && (
         <>
+          {(data.sessionForecast?.today || data.sessionForecast?.tomorrow) && (
+            <section className="grid gap-4 sm:grid-cols-2">
+              {data.sessionForecast.today && (
+                <ClosePredictionCard prediction={data.sessionForecast.today} accent="teal" />
+              )}
+              {data.sessionForecast.tomorrow && (
+                <ClosePredictionCard prediction={data.sessionForecast.tomorrow} accent="coral" />
+              )}
+            </section>
+          )}
+
           <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
             <div className={`rounded-2xl border px-5 py-6 ${signalColor}`}>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] opacity-70">Suggestion</p>

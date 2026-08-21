@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { PriceChart } from '../components/PriceChart'
+import { ClosePredictionCard } from '../components/ClosePredictionCard'
 import { formatUpdatedAt, useAutoRefresh } from '../hooks/useAutoRefresh'
-import { api, formatPct, formatPrice, formatVolume, type HistoryPoint, type Quote } from '../lib/api'
+import {
+  api,
+  formatPct,
+  formatPrice,
+  formatVolume,
+  type HistoryPoint,
+  type Quote,
+  type SessionClosePrediction,
+} from '../lib/api'
 
 const RANGES = [
   { key: '1mo', label: '1M' },
@@ -21,6 +30,8 @@ export function StockPage() {
   const [range, setRange] = useState<string>('1y')
   const [historyLoading, setHistoryLoading] = useState(true)
   const [historyError, setHistoryError] = useState<string | null>(null)
+  const [todayClose, setTodayClose] = useState<SessionClosePrediction | null>(null)
+  const [tomorrowClose, setTomorrowClose] = useState<SessionClosePrediction | null>(null)
 
   const fetchQuote = useCallback(
     () => api.quote(exchange, decoded),
@@ -54,6 +65,26 @@ export function StockPage() {
       cancelled = true
     }
   }, [exchange, decoded, range])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const analysis = await api.analyse(exchange, decoded, 7)
+        if (cancelled) return
+        setTodayClose(analysis.sessionForecast?.today ?? null)
+        setTomorrowClose(analysis.sessionForecast?.tomorrow ?? null)
+      } catch {
+        if (!cancelled) {
+          setTodayClose(null)
+          setTomorrowClose(null)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [exchange, decoded])
 
   const up = (quote?.changePercent ?? 0) >= 0
   const chartData = points.map((p) => ({ date: p.date, close: p.close }))
@@ -106,6 +137,13 @@ export function StockPage() {
             <Stat label="Prev close" value={`₹${formatPrice(quote.previousClose)}`} />
             <Stat label="Volume" value={formatVolume(quote.volume)} />
           </div>
+
+          {(todayClose || tomorrowClose) && (
+            <section className="grid gap-4 sm:grid-cols-2">
+              {todayClose && <ClosePredictionCard prediction={todayClose} accent="teal" />}
+              {tomorrowClose && <ClosePredictionCard prediction={tomorrowClose} accent="coral" />}
+            </section>
+          )}
 
           <section className="rounded-2xl border border-mist bg-white/80 p-4 shadow-sm sm:p-5">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">

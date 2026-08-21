@@ -44,6 +44,18 @@ export type HistoryPoint = {
   volume: number
 }
 
+export type SessionClosePrediction = {
+  kind: 'today' | 'tomorrow' | string
+  label: string
+  date: string
+  weekday: string
+  predicted: number
+  low: number
+  high: number
+  vsLastClose: number
+  vsLastClosePercent: number
+}
+
 export type AnalyseResult = {
   exchange: string
   symbol: string
@@ -69,6 +81,12 @@ export type AnalyseResult = {
   }
   history?: { date: string; close: number }[]
   forecast?: { date: string; predicted: number; low: number; high: number }[]
+  sessionForecast?: {
+    today: SessionClosePrediction | null
+    tomorrow: SessionClosePrediction | null
+    basisLastClose?: number
+    basisDate?: string
+  }
   disclaimer: string
   error?: string
   asOf?: string

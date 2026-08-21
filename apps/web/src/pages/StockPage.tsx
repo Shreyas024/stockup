@@ -100,22 +100,22 @@ export function StockPage() {
         <p className="text-sm text-loss">{error}</p>
       ) : quote ? (
         <>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
+          <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
+            <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="font-display text-4xl sm:text-5xl">{quote.symbol}</h1>
+                <h1 className="font-display text-3xl sm:text-4xl md:text-5xl">{quote.symbol}</h1>
                 <span className="rounded-md bg-mist px-2 py-1 text-xs font-semibold uppercase tracking-wide text-ink-soft">
                   {quote.exchange}
                 </span>
               </div>
-              <p className="mt-1 text-ink-soft/80">{quote.name}</p>
-              <div className="mt-4 flex flex-wrap items-end gap-3">
-                <span className="text-3xl font-semibold tabular-nums">₹{formatPrice(quote.price)}</span>
-                <span className={`text-lg font-medium tabular-nums ${up ? 'text-gain' : 'text-loss'}`}>
+              <p className="mt-1 truncate text-sm text-ink-soft/80 sm:text-base">{quote.name}</p>
+              <div className="mt-3 flex flex-wrap items-end gap-2 sm:mt-4 sm:gap-3">
+                <span className="text-2xl font-semibold tabular-nums sm:text-3xl">₹{formatPrice(quote.price)}</span>
+                <span className={`text-base font-medium tabular-nums sm:text-lg ${up ? 'text-gain' : 'text-loss'}`}>
                   {formatPrice(quote.change)} ({formatPct(quote.changePercent)})
                 </span>
               </div>
-              <p className="mt-2 flex items-center gap-2 text-xs font-medium text-ink-soft/70">
+              <p className="mt-2 flex items-center gap-2 text-[11px] font-medium text-ink-soft/70 sm:text-xs">
                 <span
                   className={`inline-block h-2 w-2 rounded-full ${
                     refreshing ? 'animate-pulse-soft bg-teal' : 'bg-gain'
@@ -124,21 +124,25 @@ export function StockPage() {
                 {refreshing ? (
                   <span className="text-teal">Refreshing live price…</span>
                 ) : updatedAt ? (
-                  <span>Live price · updates every 3s · {formatUpdatedAt(updatedAt)}</span>
+                  <span>
+                    <span className="sm:hidden">Live · {formatUpdatedAt(updatedAt)}</span>
+                    <span className="hidden sm:inline">Live price · updates every 3s · {formatUpdatedAt(updatedAt)}</span>
+                  </span>
                 ) : (
-                  <span>Live price · updates every 3s</span>
+                  <span>Live price</span>
                 )}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
               <WatchlistButton
                 exchange={quote.exchange}
                 symbol={quote.symbol}
                 name={quote.name}
+                className="flex-1 sm:flex-none"
               />
               <Link
                 to={`/stock/${exchange}/${encodeURIComponent(decoded)}/analyse`}
-                className="rounded-xl bg-coral px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-ink"
+                className="flex-1 rounded-xl bg-coral px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-ink sm:flex-none sm:px-5 sm:py-3"
               >
                 Analyse stock
               </Link>

@@ -85,50 +85,62 @@ export function WatchlistPage() {
           </Link>
         </div>
       ) : (
-        <ul className="divide-y divide-mist overflow-hidden rounded-2xl border border-mist bg-white/80">
+        <ul className="w-full min-w-0 divide-y divide-mist overflow-hidden rounded-2xl border border-mist bg-white/80">
           {items.map((item) => {
             const key = `${item.exchange}:${item.symbol}`
             const quote = quotes[key]
             const up = (quote?.changePercent ?? 0) >= 0
             return (
-              <li key={key} className="flex flex-wrap items-center gap-3 px-4 py-3.5">
-                <Link
-                  to={`/stock/${item.exchange}/${encodeURIComponent(item.symbol)}`}
-                  className="min-w-0 flex-1"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-ink hover:text-teal">{item.symbol}</span>
-                    <span className="rounded bg-mist px-1.5 py-0.5 text-[10px] font-semibold uppercase text-ink-soft">
-                      {item.exchange}
-                    </span>
-                  </div>
-                  <p className="truncate text-sm text-ink-soft/75">{item.name}</p>
-                </Link>
-                <div className="text-right">
-                  {loading && !quote ? (
-                    <span className="text-xs text-ink-soft/50">…</span>
-                  ) : (
-                    <>
-                      <div className="font-semibold tabular-nums">₹{formatPrice(quote?.price ?? null)}</div>
-                      <div className={`text-sm tabular-nums ${up ? 'text-gain' : 'text-loss'}`}>
-                        {formatPct(quote?.changePercent ?? null)}
-                      </div>
-                    </>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
+              <li key={key} className="flex w-full min-w-0 flex-col gap-2 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 sm:px-4 sm:py-3.5">
+                <div className="flex min-w-0 items-start gap-2 sm:flex-1">
                   <Link
-                    to={`/stock/${item.exchange}/${encodeURIComponent(item.symbol)}/analyse`}
-                    className="rounded-lg bg-coral/10 px-2.5 py-1.5 text-xs font-semibold text-coral hover:bg-coral/15"
+                    to={`/stock/${item.exchange}/${encodeURIComponent(item.symbol)}`}
+                    className="min-w-0 flex-1 overflow-hidden"
                   >
-                    Analyse
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate font-semibold text-ink hover:text-teal">{item.symbol}</span>
+                      <span className="shrink-0 rounded bg-mist px-1.5 py-0.5 text-[10px] font-semibold uppercase text-ink-soft">
+                        {item.exchange}
+                      </span>
+                    </div>
+                    <p className="truncate text-sm text-ink-soft/75">{item.name}</p>
                   </Link>
                   <WatchlistButton
                     exchange={item.exchange}
                     symbol={item.symbol}
                     name={item.name}
                     size="sm"
+                    className="shrink-0 sm:hidden"
                   />
+                </div>
+                <div className="flex items-center justify-between gap-2 sm:contents">
+                  <div className="text-left sm:ml-auto sm:text-right">
+                    {loading && !quote ? (
+                      <span className="text-xs text-ink-soft/50">…</span>
+                    ) : (
+                      <>
+                        <div className="font-semibold tabular-nums">₹{formatPrice(quote?.price ?? null)}</div>
+                        <div className={`text-sm tabular-nums ${up ? 'text-gain' : 'text-loss'}`}>
+                          {formatPct(quote?.changePercent ?? null)}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to={`/stock/${item.exchange}/${encodeURIComponent(item.symbol)}/analyse`}
+                      className="rounded-lg bg-coral/10 px-2.5 py-1.5 text-xs font-semibold text-coral hover:bg-coral/15"
+                    >
+                      Analyse
+                    </Link>
+                    <WatchlistButton
+                      exchange={item.exchange}
+                      symbol={item.symbol}
+                      name={item.name}
+                      size="sm"
+                      className="hidden sm:inline-flex"
+                    />
+                  </div>
                 </div>
               </li>
             )

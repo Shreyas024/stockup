@@ -17,44 +17,49 @@ export function HomePage() {
   const losers = data?.losers ?? []
 
   return (
-    <div className="space-y-12">
-      <section className="animate-rise grid gap-8 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
-        <div>
-          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-teal">
+    <div className="space-y-8 sm:space-y-12">
+      <section className="animate-rise grid w-full min-w-0 gap-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-end lg:gap-8">
+        <div className="min-w-0 max-w-full">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-teal sm:mb-3 sm:text-xs sm:tracking-[0.22em]">
             Historical patterns · Forward outlook
           </p>
-          <h1 className="font-display text-5xl leading-[1.05] text-ink sm:text-6xl">
+          <h1 className="font-display text-4xl leading-[1.05] text-ink sm:text-5xl md:text-6xl">
             StockUp
           </h1>
-          <p className="mt-4 max-w-xl text-lg text-ink-soft/85">
+          <p className="mt-3 max-w-xl text-sm leading-relaxed text-ink-soft/85 sm:mt-4 sm:text-lg">
             Explore NSE &amp; BSE equities, read current market moves, and analyse past ups and downs
             for a Buy / Hold / Sell outlook with a short predicted trend.
           </p>
-          <div className="mt-8 max-w-xl">
+          <div className="mt-5 max-w-xl sm:mt-8">
             <StockSearchBox variant="hero" placeholder="Try RELIANCE, TCS, HDFCBANK…" />
           </div>
         </div>
-        <div className="animate-rise-delay relative overflow-hidden rounded-3xl border border-mist bg-ink px-6 py-7 text-foam shadow-lg">
+        <div className="animate-rise-delay relative min-w-0 overflow-hidden rounded-2xl border border-mist bg-ink px-4 py-5 text-foam shadow-lg sm:rounded-3xl sm:px-6 sm:py-7">
           <div className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-teal-bright/30 blur-2xl" />
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-teal-bright">Today&apos;s pulse</p>
-          <p className="mt-3 font-display text-3xl leading-snug">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-teal-bright sm:text-xs sm:tracking-[0.2em]">
+            Today&apos;s pulse
+          </p>
+          <p className="mt-2 break-words font-display text-2xl leading-snug sm:mt-3 sm:text-3xl">
             Trending names moving the most across liquid NSE &amp; BSE names.
           </p>
-          <p className="mt-3 text-sm text-foam/70">
+          <p className="mt-2 break-words text-xs text-foam/70 sm:mt-3 sm:text-sm">
             Pick a stock, open the chart, then run Analyse for technical signals plus a forecast path.
           </p>
         </div>
       </section>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-ink-soft/70">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-soft/70 sm:text-sm">
           Live trending
         </h2>
-        <p className="text-xs text-ink-soft/55">
+        <p className="text-[11px] text-ink-soft/55 sm:text-xs">
           {refreshing ? (
             <span className="animate-pulse-soft text-teal">Updating…</span>
           ) : updatedAt ? (
-            <>Auto-refresh · last update {formatUpdatedAt(updatedAt)}</>
+            <>
+              <span className="sm:hidden">Updated {formatUpdatedAt(updatedAt)}</span>
+              <span className="hidden sm:inline">Auto-refresh · last update {formatUpdatedAt(updatedAt)}</span>
+            </>
           ) : (
             'Auto-refresh every 8s'
           )}
@@ -72,14 +77,14 @@ export function HomePage() {
           Loading trending stocks…
         </div>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-3">
+        <div className="grid w-full min-w-0 gap-4 sm:gap-6 lg:grid-cols-3">
           <TrendingPanel title="Biggest movers" items={movers} />
           <TrendingPanel title="Top gainers" items={gainers} />
           <TrendingPanel title="Top losers" items={losers} />
         </div>
       )}
 
-      <section className="rounded-2xl border border-mist bg-white/60 px-5 py-6 text-sm text-ink-soft/80">
+      <section className="rounded-2xl border border-mist bg-white/60 px-4 py-5 text-sm text-ink-soft/80 sm:px-5 sm:py-6">
         <p>
           StockUp scores historical trend strength (moving averages, RSI, MACD) and overlays a simple
           machine-learning price path. It is <strong className="text-ink">not financial advice</strong>.
@@ -95,11 +100,11 @@ export function HomePage() {
 
 function TrendingPanel({ title, items }: { title: string; items: Quote[] }) {
   return (
-    <section className="rounded-2xl border border-mist bg-white/75 p-2 shadow-sm">
-      <h2 className="px-3 pb-1 pt-3 text-sm font-semibold uppercase tracking-[0.14em] text-ink-soft/70">
+    <section className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-mist bg-white/75 p-1.5 shadow-sm sm:p-2">
+      <h2 className="px-2.5 pb-1 pt-2.5 text-xs font-semibold uppercase tracking-[0.14em] text-ink-soft/70 sm:px-3 sm:pt-3 sm:text-sm">
         {title}
       </h2>
-      <div className="divide-y divide-mist/70">
+      <div className="w-full min-w-0 divide-y divide-mist/70">
         {items.length === 0 ? (
           <p className="px-3 py-6 text-sm text-ink-soft/55">No data right now</p>
         ) : (

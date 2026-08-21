@@ -53,28 +53,33 @@ export function SearchPage() {
         </p>
       )}
 
-      <ul className="divide-y divide-mist overflow-hidden rounded-2xl border border-mist bg-white/75">
+      <ul className="w-full min-w-0 divide-y divide-mist overflow-hidden rounded-2xl border border-mist bg-white/75">
         {results.map((r) => (
-          <li key={`${r.exchange}-${r.symbol}`} className="flex flex-wrap items-center gap-3 px-4 py-3">
+          <li
+            key={`${r.exchange}-${r.symbol}`}
+            className="flex w-full min-w-0 flex-col gap-2 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 sm:px-4"
+          >
             <Link
               to={`/stock/${r.exchange}/${encodeURIComponent(r.symbol)}`}
-              className="min-w-0 flex-1 transition hover:opacity-80"
+              className="min-w-0 flex-1 overflow-hidden transition hover:opacity-80"
             >
-              <div className="flex items-center gap-2">
-                <span className="font-semibold">{r.symbol}</span>
-                <span className="rounded bg-mist px-1.5 py-0.5 text-[10px] font-semibold uppercase text-ink-soft">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate font-semibold">{r.symbol}</span>
+                <span className="shrink-0 rounded bg-mist px-1.5 py-0.5 text-[10px] font-semibold uppercase text-ink-soft">
                   {r.exchange}
                 </span>
               </div>
-              <p className="text-sm text-ink-soft/75">{r.name}</p>
+              <p className="truncate text-sm text-ink-soft/75">{r.name}</p>
             </Link>
-            <WatchlistButton exchange={r.exchange} symbol={r.symbol} name={r.name} size="sm" />
-            <Link
-              to={`/stock/${r.exchange}/${encodeURIComponent(r.symbol)}`}
-              className="text-sm font-medium text-teal hover:underline"
-            >
-              View →
-            </Link>
+            <div className="flex items-center justify-between gap-2 sm:justify-end">
+              <WatchlistButton exchange={r.exchange} symbol={r.symbol} name={r.name} size="sm" />
+              <Link
+                to={`/stock/${r.exchange}/${encodeURIComponent(r.symbol)}`}
+                className="text-sm font-medium text-teal hover:underline"
+              >
+                View →
+              </Link>
+            </div>
           </li>
         ))}
       </ul>

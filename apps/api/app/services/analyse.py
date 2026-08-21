@@ -8,7 +8,8 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.linear_model import Ridge
 
 from app.services.symbols import find_symbol
 from app.services.yahoo import download_history
@@ -143,22 +144,6 @@ def _score_signal(
     return signal, confidence, reasons
 
 
-def _fit_log_price_model(closes: pd.Series) -> tuple[LinearRegression, int, float] | None:
-    y = np.log(np.clip(closes.values.astype(float), 1e-9, None))
-    n = len(y)
-    if n < 8:
-        return None
-    window = min(n, 180)
-    y_w = y[-window:]
-    x_w = np.arange(window).reshape(-1, 1)
-    model = LinearRegression()
-    model.fit(x_w, y_w)
-    residuals = y_w - model.predict(x_w)
-    std = float(np.std(residuals)) if len(residuals) else 0.02
-    std = max(std, 0.005)
-    return model, window, std
-
-
 def _next_trading_days(after: date, count: int) -> list[date]:
     out: list[date] = []
     d = after
@@ -167,17 +152,6 @@ def _next_trading_days(after: date, count: int) -> list[date]:
         if d.weekday() < 5:
             out.append(d)
     return out
-
-
-def _predict_at_step(model: LinearRegression, window: int, std: float, step: int) -> dict[str, float]:
-    x_f = np.array([[window - 1 + step]])
-    log_p = float(model.predict(x_f)[0])
-    band = std * (1 + 0.08 * max(step, 1))
-    return {
-        "predicted": round(float(np.exp(log_p)), 2),
-        "low": round(float(np.exp(log_p - 1.28 * band)), 2),
-        "high": round(float(np.exp(log_p + 1.28 * band)), 2),
-    }
 
 
 def _momentum_forecast(closes: pd.Series, dates: pd.DatetimeIndex, horizon_days: int) -> list[dict[str, Any]]:
@@ -209,33 +183,186 @@ def _momentum_forecast(closes: pd.Series, dates: pd.DatetimeIndex, horizon_days:
     return out
 
 
-def _forecast(closes: pd.Series, dates: pd.DatetimeIndex, horizon_days: int) -> list[dict[str, Any]]:
-    fitted = _fit_log_price_model(closes)
-    if fitted is None:
-        return _momentum_forecast(closes, dates, horizon_days)
-    model, window, std = fitted
+def _build_feature_frame(closes: pd.Series, volumes: pd.Series | None = None) -> pd.DataFrame:
+    """Engineered features for next-day return prediction."""
+    c = closes.astype(float)
+    df = pd.DataFrame({"close": c})
+    df["ret1"] = c.pct_change()
+    df["ret2"] = c.pct_change(2)
+    df["ret3"] = c.pct_change(3)
+    df["ret5"] = c.pct_change(5)
+    df["ret10"] = c.pct_change(10)
+    df["sma5"] = c.rolling(5).mean() / c - 1
+    df["sma10"] = c.rolling(10).mean() / c - 1
+    df["sma20"] = c.rolling(20).mean() / c - 1
+    df["sma50"] = c.rolling(50).mean() / c - 1
+    df["ema12"] = c.ewm(span=12, adjust=False).mean() / c - 1
+    df["ema26"] = c.ewm(span=26, adjust=False).mean() / c - 1
+    df["vol5"] = df["ret1"].rolling(5).std()
+    df["vol10"] = df["ret1"].rolling(10).std()
+    df["vol20"] = df["ret1"].rolling(20).std()
+    # RSI-ish
+    delta = c.diff()
+    gain = delta.clip(lower=0).rolling(14).mean()
+    loss = (-delta.clip(upper=0)).rolling(14).mean()
+    rs = gain / loss.replace(0, np.nan)
+    df["rsi"] = (100 - (100 / (1 + rs))) / 100.0
+    df["mom5"] = c / c.shift(5) - 1
+    df["mom10"] = c / c.shift(10) - 1
+    if volumes is not None and len(volumes) == len(c):
+        v = volumes.astype(float).replace(0, np.nan)
+        df["vchg"] = v.pct_change()
+        df["v_sma5"] = v / v.rolling(5).mean() - 1
+    else:
+        df["vchg"] = 0.0
+        df["v_sma5"] = 0.0
+    df["dow"] = np.array([idx.weekday() / 4.0 for idx in c.index], dtype=float)
+    df["target"] = df["ret1"].shift(-1)  # next-day return
+    return df
 
-    last_date = dates[-1].to_pydatetime()
-    if last_date.tzinfo is not None:
-        last_date = last_date.astimezone(IST)
-    sessions = _next_trading_days(last_date.date(), horizon_days)
+
+def _train_return_model(closes: pd.Series, volumes: pd.Series | None = None):
+    """Train a fast ensemble that predicts next-day return."""
+    # Keep training window bounded for speed on long histories
+    max_bars = 400
+    if len(closes) > max_bars:
+        closes = closes.iloc[-max_bars:]
+        if volumes is not None:
+            volumes = volumes.iloc[-max_bars:]
+
+    if len(closes) < 40:
+        return None
+    df = _build_feature_frame(closes, volumes)
+    feature_cols = [c for c in df.columns if c not in {"close", "target"}]
+    train = df.dropna()
+    if len(train) < 30:
+        return None
+
+    X = train[feature_cols].values
+    y = train["target"].values
+    split = max(20, int(len(train) * 0.85))
+    X_tr, y_tr = X[:split], y[:split]
+    X_te, y_te = X[split:], y[split:]
+
+    models = [
+        GradientBoostingRegressor(
+            n_estimators=80,
+            max_depth=3,
+            learning_rate=0.06,
+            subsample=0.85,
+            random_state=42,
+        ),
+        Ridge(alpha=1.0),
+    ]
+    fitted = []
+    for m in models:
+        try:
+            m.fit(X_tr, y_tr)
+            fitted.append(m)
+        except Exception:
+            continue
+    if not fitted:
+        return None
+
+    def predict_row(row_vals: np.ndarray) -> float:
+        preds = [float(m.predict(row_vals.reshape(1, -1))[0]) for m in fitted]
+        blended = float(np.mean(preds))
+        return float(np.clip(blended, -0.08, 0.08))
+
+    if len(X_te) > 0:
+        # Vectorized residual estimate from first model + ridge average
+        te_stack = np.column_stack([m.predict(X_te) for m in fitted])
+        te_preds = np.clip(te_stack.mean(axis=1), -0.08, 0.08)
+        resid = y_te - te_preds
+        std = float(np.std(resid)) if len(resid) else 0.015
+    else:
+        std = 0.015
+    std = max(std, 0.008)
+
+    latest = df.iloc[[-1]][feature_cols]
+    if latest.isna().to_numpy().any():
+        latest = latest.fillna(0.0)
+    next_ret = predict_row(latest.values[0])
+
+    return next_ret, std, feature_cols, fitted, df
+
+
+def _ensemble_path(
+    closes: pd.Series,
+    dates: pd.DatetimeIndex,
+    horizon_days: int,
+    volumes: pd.Series | None = None,
+) -> list[dict[str, Any]]:
+    """Multi-step forecast using ML next-day return + EMA momentum blend."""
+    last_price = float(closes.iloc[-1])
+    last_ts = dates[-1].to_pydatetime()
+    if last_ts.tzinfo is not None:
+        last_ts = last_ts.astimezone(IST)
+    sessions = _next_trading_days(last_ts.date(), horizon_days)
+
+    trained = _train_return_model(closes, volumes)
+    rets = closes.pct_change().dropna()
+    ema_ret = float(rets.ewm(span=5).mean().iloc[-1]) if len(rets) else 0.0
+    mean_ret = float(rets.tail(10).mean()) if len(rets) else 0.0
+    vol = float(rets.tail(20).std()) if len(rets) > 5 else 0.02
+    vol = max(vol if not np.isnan(vol) else 0.02, 0.01)
+
+    if trained is not None:
+        next_ret, ml_std, _, _, _ = trained
+        day1 = 0.55 * next_ret + 0.25 * ema_ret + 0.20 * mean_ret
+        std = max(ml_std, vol * 0.7)
+    else:
+        day1 = 0.6 * ema_ret + 0.4 * mean_ret
+        std = vol
+
+    day1 = float(np.clip(day1, -0.08, 0.08))
+    # Mean-revert subsequent days toward milder drift
+    drift = 0.35 * day1 + 0.65 * mean_ret
+    drift = float(np.clip(drift, -0.04, 0.04))
 
     out: list[dict[str, Any]] = []
+    price = last_price
     for i, session in enumerate(sessions, start=1):
-        pred = _predict_at_step(model, window, std, i)
+        step_ret = day1 if i == 1 else drift * (0.85 ** (i - 2))
+        price = price * (1 + step_ret)
+        band = price * std * (1 + 0.12 * i) * 1.28
         out.append(
             {
                 "date": session.isoformat(),
-                "predicted": pred["predicted"],
-                "low": pred["low"],
-                "high": pred["high"],
+                "predicted": round(price, 2),
+                "low": round(max(price - band, 0), 2),
+                "high": round(price + band, 2),
             }
         )
     return out
 
 
-def _session_close_forecast(closes: pd.Series, dates: pd.DatetimeIndex) -> dict[str, Any]:
-    fitted = _fit_log_price_model(closes)
+def _forecast(
+    closes: pd.Series,
+    dates: pd.DatetimeIndex,
+    horizon_days: int,
+    volumes: pd.Series | None = None,
+) -> list[dict[str, Any]]:
+    if len(closes) < 8:
+        return _momentum_forecast(closes, dates, horizon_days)
+    return _ensemble_path(closes, dates, horizon_days, volumes)
+
+
+def _close_on_date(closes: pd.Series, dates: pd.DatetimeIndex, target: date) -> float | None:
+    for idx, px in zip(dates, closes):
+        ts = idx.to_pydatetime()
+        if ts.tzinfo is not None:
+            ts = ts.astimezone(IST)
+        if ts.date() == target:
+            return float(px)
+    return None
+
+
+def _session_close_forecast(
+    closes: pd.Series,
+    dates: pd.DatetimeIndex,
+    volumes: pd.Series | None = None,
+) -> dict[str, Any]:
     last_ts = dates[-1].to_pydatetime()
     if last_ts.tzinfo is not None:
         last_ts = last_ts.astimezone(IST)
@@ -244,6 +371,7 @@ def _session_close_forecast(closes: pd.Series, dates: pd.DatetimeIndex) -> dict[
 
     now = datetime.now(IST)
     today = now.date()
+    market_closed = now.hour > 15 or (now.hour == 15 and now.minute >= 30)
 
     if today.weekday() < 5:
         session_today = today
@@ -251,32 +379,10 @@ def _session_close_forecast(closes: pd.Series, dates: pd.DatetimeIndex) -> dict[
         session_today = _next_trading_days(today, 1)[0]
     session_tomorrow = _next_trading_days(session_today, 1)[0]
 
-    def steps_ahead(target: date) -> int:
-        if target <= last_hist:
-            return 0
-        count = 0
-        d = last_hist
-        while d < target:
-            d += timedelta(days=1)
-            if d.weekday() < 5:
-                count += 1
-        return max(count, 1)
+    path = _ensemble_path(closes, dates, 5, volumes) if len(closes) >= 8 else _momentum_forecast(closes, dates, 5)
 
-    def build_from_model(target: date, label: str, kind: str) -> dict[str, Any]:
-        assert fitted is not None
-        model, window, std = fitted
-        step = steps_ahead(target)
-        if step == 0:
-            one = _predict_at_step(model, window, std, 1)
-            move = one["predicted"] - last_close
-            predicted = round(last_close + 0.55 * move, 2)
-            band = abs(one["high"] - one["predicted"])
-            low = round(predicted - band, 2)
-            high = round(predicted + band, 2)
-        else:
-            pred = _predict_at_step(model, window, std, step)
-            predicted, low, high = pred["predicted"], pred["low"], pred["high"]
-
+    def pack(target: date, label: str, kind: str, predicted: float, low: float, high: float, is_actual: bool) -> dict[str, Any]:
+        # vs previous completed close (day before target if available)
         change = round(predicted - last_close, 2)
         change_pct = round((change / last_close) * 100, 2) if last_close else 0.0
         return {
@@ -284,67 +390,100 @@ def _session_close_forecast(closes: pd.Series, dates: pd.DatetimeIndex) -> dict[
             "label": label,
             "date": target.isoformat(),
             "weekday": target.strftime("%A"),
-            "predicted": predicted,
-            "low": low,
-            "high": high,
+            "predicted": round(predicted, 2),
+            "low": round(low, 2),
+            "high": round(high, 2),
             "vsLastClose": change,
             "vsLastClosePercent": change_pct,
+            "isActual": is_actual,
         }
 
-    def build_from_momentum(target: date, label: str, kind: str, step: int) -> dict[str, Any]:
-        points = _momentum_forecast(closes, dates, max(step, 1))
-        if not points:
-            return {
-                "kind": kind,
-                "label": label,
-                "date": target.isoformat(),
-                "weekday": target.strftime("%A"),
-                "predicted": round(last_close, 2),
-                "low": round(last_close * 0.98, 2),
-                "high": round(last_close * 1.02, 2),
-                "vsLastClose": 0.0,
-                "vsLastClosePercent": 0.0,
-            }
-        idx = min(step, len(points)) - 1
-        p = points[idx]
-        change = round(p["predicted"] - last_close, 2)
-        change_pct = round((change / last_close) * 100, 2) if last_close else 0.0
-        return {
-            "kind": kind,
-            "label": label,
-            "date": target.isoformat(),
-            "weekday": target.strftime("%A"),
-            "predicted": p["predicted"],
-            "low": p["low"],
-            "high": p["high"],
-            "vsLastClose": change,
-            "vsLastClosePercent": change_pct,
-        }
-
-    today_label = (
-        "Predicted close today"
-        if session_today == today
-        else f"Predicted close today · next session ({session_today.strftime('%d %b')})"
-    )
-    if session_tomorrow == today + timedelta(days=1):
-        tomorrow_label = "Predicted close tomorrow"
-    else:
-        tomorrow_label = f"Predicted close tomorrow · {session_tomorrow.strftime('%A, %d %b')}"
-
-    if fitted is not None:
-        today_pred = build_from_model(session_today, today_label, "today")
-        tomorrow_pred = build_from_model(session_tomorrow, tomorrow_label, "tomorrow")
-    else:
-        today_pred = build_from_momentum(session_today, today_label, "today", max(1, steps_ahead(session_today)))
-        tomorrow_pred = build_from_momentum(
-            session_tomorrow, tomorrow_label, "tomorrow", max(2, steps_ahead(session_tomorrow))
+    # TODAY: if Yahoo already has today's bar (usual after market close), show actual close
+    actual_today = _close_on_date(closes, dates, session_today)
+    if actual_today is not None and (market_closed or last_hist >= session_today):
+        today_label = "Today's close (actual)"
+        band = actual_today * 0.005
+        today_pred = pack(
+            session_today,
+            today_label,
+            "today",
+            actual_today,
+            actual_today - band,
+            actual_today + band,
+            True,
         )
+        # Tomorrow = first step of ML path from known close
+        if path:
+            # Recompute path anchored at actual today by scaling from last_close ratio
+            tmr = path[0]
+            # If last bar is today, path[0] is already next session from today
+            if last_hist >= session_today:
+                tomorrow_pred = pack(
+                    session_tomorrow,
+                    "Predicted close tomorrow"
+                    if session_tomorrow == today + timedelta(days=1)
+                    else f"Predicted close tomorrow · {session_tomorrow.strftime('%A, %d %b')}",
+                    "tomorrow",
+                    tmr["predicted"],
+                    tmr["low"],
+                    tmr["high"],
+                    False,
+                )
+            else:
+                tomorrow_pred = pack(
+                    session_tomorrow,
+                    "Predicted close tomorrow",
+                    "tomorrow",
+                    tmr["predicted"],
+                    tmr["low"],
+                    tmr["high"],
+                    False,
+                )
+        else:
+            tomorrow_pred = pack(
+                session_tomorrow,
+                "Predicted close tomorrow",
+                "tomorrow",
+                actual_today,
+                actual_today * 0.98,
+                actual_today * 1.02,
+                False,
+            )
+    else:
+        # Before close / no today bar yet: ML prediction for today then tomorrow
+        today_label = "Predicted close today"
+        if path:
+            t0 = path[0]
+            today_pred = pack(session_today, today_label, "today", t0["predicted"], t0["low"], t0["high"], False)
+            t1 = path[1] if len(path) > 1 else path[0]
+            tomorrow_label = (
+                "Predicted close tomorrow"
+                if session_tomorrow == today + timedelta(days=1)
+                else f"Predicted close tomorrow · {session_tomorrow.strftime('%A, %d %b')}"
+            )
+            tomorrow_pred = pack(
+                session_tomorrow, tomorrow_label, "tomorrow", t1["predicted"], t1["low"], t1["high"], False
+            )
+        else:
+            today_pred = pack(
+                session_today, today_label, "today", last_close, last_close * 0.98, last_close * 1.02, False
+            )
+            tomorrow_pred = pack(
+                session_tomorrow,
+                "Predicted close tomorrow",
+                "tomorrow",
+                last_close,
+                last_close * 0.97,
+                last_close * 1.03,
+                False,
+            )
 
     return {
         "today": today_pred,
         "tomorrow": tomorrow_pred,
         "basisLastClose": round(last_close, 2),
         "basisDate": last_hist.isoformat(),
+        "model": "gradient-boosting-ensemble",
     }
 
 
@@ -403,8 +542,9 @@ def analyse_stock(exchange: str, symbol: str, horizon_days: int = 14) -> dict[st
         {"date": idx.strftime("%Y-%m-%d"), "close": round(float(row["Close"]), 2)}
         for idx, row in hist.iloc[-lookback:].iterrows()
     ]
-    forecast = _forecast(close, hist.index, horizon_days)
-    session_forecast = _session_close_forecast(close, hist.index)
+    vol = hist["Volume"].astype(float) if "Volume" in hist.columns else None
+    forecast = _forecast(close, hist.index, horizon_days, vol)
+    session_forecast = _session_close_forecast(close, hist.index, vol)
 
     trend_label = "Uptrend" if past_return > 8 else "Downtrend" if past_return < -8 else "Sideways"
 

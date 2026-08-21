@@ -55,6 +55,7 @@ export type SessionClosePrediction = {
   high: number
   vsLastClose: number
   vsLastClosePercent: number
+  isActual?: boolean
 }
 
 export type AnalyseResult = {

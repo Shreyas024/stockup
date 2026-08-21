@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.local
+.DS_Store
+*.egg-info/
+.pytest_cache/
+apps/web/dist/
+data/_seed_symbols.py

@@ -11,10 +11,14 @@ def trending(limit: int = Query(12, ge=1, le=30)):
 
 
 @router.get("/quote/{exchange}/{symbol}")
-def quote(exchange: str, symbol: str):
+def quote(
+    exchange: str,
+    symbol: str,
+    fresh: bool = Query(False, description="Bypass short-lived quote cache"),
+):
     if exchange.upper() not in {"NSE", "BSE"}:
         raise HTTPException(status_code=400, detail="exchange must be NSE or BSE")
-    return market.get_quote(exchange, symbol)
+    return market.get_quote(exchange, symbol, fresh=fresh)
 
 
 @router.get("/history/{exchange}/{symbol}")

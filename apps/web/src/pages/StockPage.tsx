@@ -21,7 +21,7 @@ const RANGES = [
   { key: '5y', label: '5Y' },
 ] as const
 
-const QUOTE_REFRESH_MS = 20_000
+const QUOTE_REFRESH_MS = 3_000
 
 export function StockPage() {
   const { exchange = '', symbol = '' } = useParams()
@@ -34,7 +34,7 @@ export function StockPage() {
   const [tomorrowClose, setTomorrowClose] = useState<SessionClosePrediction | null>(null)
 
   const fetchQuote = useCallback(
-    () => api.quote(exchange, decoded),
+    () => api.quote(exchange, decoded, true),
     [exchange, decoded],
   )
 
@@ -114,12 +114,19 @@ export function StockPage() {
                   {formatPrice(quote.change)} ({formatPct(quote.changePercent)})
                 </span>
               </div>
-              <p className="mt-2 text-xs text-ink-soft/55">
+              <p className="mt-2 flex items-center gap-2 text-xs font-medium text-ink-soft/70">
+                <span
+                  className={`inline-block h-2 w-2 rounded-full ${
+                    refreshing ? 'animate-pulse-soft bg-teal' : 'bg-gain'
+                  }`}
+                />
                 {refreshing ? (
-                  <span className="animate-pulse-soft text-teal">Updating price…</span>
+                  <span className="text-teal">Refreshing live price…</span>
                 ) : updatedAt ? (
-                  <>Live · last update {formatUpdatedAt(updatedAt)}</>
-                ) : null}
+                  <span>Live price · updates every 3s · {formatUpdatedAt(updatedAt)}</span>
+                ) : (
+                  <span>Live price · updates every 3s</span>
+                )}
               </p>
             </div>
             <Link

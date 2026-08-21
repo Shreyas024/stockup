@@ -2,6 +2,7 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
     ...init,
   })
@@ -97,8 +98,10 @@ export const api = {
     request<{ query: string; results: SymbolResult[] }>(`/api/search?q=${encodeURIComponent(q)}`),
   trending: () =>
     request<{ movers: Quote[]; gainers: Quote[]; losers: Quote[]; asOf: string }>('/api/trending'),
-  quote: (exchange: string, symbol: string) =>
-    request<Quote>(`/api/quote/${exchange}/${encodeURIComponent(symbol)}`),
+  quote: (exchange: string, symbol: string, fresh = false) =>
+    request<Quote>(
+      `/api/quote/${exchange}/${encodeURIComponent(symbol)}${fresh ? '?fresh=true' : ''}`,
+    ),
   history: (exchange: string, symbol: string, range = '1y') =>
     request<{ exchange: string; symbol: string; range: string; points: HistoryPoint[] }>(
       `/api/history/${exchange}/${encodeURIComponent(symbol)}?range=${range}`,

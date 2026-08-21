@@ -4,7 +4,7 @@ import { StockRow } from '../components/StockRow'
 import { formatUpdatedAt, useAutoRefresh } from '../hooks/useAutoRefresh'
 import { api, type Quote } from '../lib/api'
 
-const REFRESH_MS = 30_000
+const REFRESH_MS = 8_000
 
 export function HomePage() {
   const navigate = useNavigate()
@@ -77,7 +77,7 @@ export function HomePage() {
           ) : updatedAt ? (
             <>Auto-refresh · last update {formatUpdatedAt(updatedAt)}</>
           ) : (
-            'Auto-refresh every 30s'
+            'Auto-refresh every 8s'
           )}
         </p>
       </div>

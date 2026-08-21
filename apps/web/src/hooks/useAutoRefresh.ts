@@ -15,9 +15,12 @@ export function useAutoRefresh<T>(
   const [error, setError] = useState<string | null>(null)
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
   const fnRef = useRef(fn)
+  const inFlight = useRef(false)
   fnRef.current = fn
 
   const run = useCallback(async (isInitial: boolean) => {
+    if (inFlight.current) return
+    inFlight.current = true
     try {
       if (isInitial) setLoading(true)
       else setRefreshing(true)
@@ -28,10 +31,11 @@ export function useAutoRefresh<T>(
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to refresh')
     } finally {
+      inFlight.current = false
       setLoading(false)
       setRefreshing(false)
     }
-  }, deps) // intentional: caller-supplied identity for refetch
+  }, deps)
 
   useEffect(() => {
     let cancelled = false
